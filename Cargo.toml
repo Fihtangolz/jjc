@@ -1,0 +1,13 @@
+[package]
+name = "jjc"
+version = "0.0.1"
+description = "Reserved"
+license = "MIT"
+authors = ["jjc team"]
+edition = "2018"
+
+[lib]
+name = "jjc"
+path = "lib.rs"
+test = false
+bench = false
