@@ -1,107 +1,187 @@
-use std::ops::Range;
 use std::alloc::{Alloc, Global};
-use core::ptr::{Unique};
+use std::mem;
+use std::ptr;
+use std::fmt;
 
-pub struct RingBuffer<T, A: Alloc = Global> { 
-    // The internal buffer used for storing elements in the container
-    buf: Unique<T>,
-    // The internal buffer's end
-    end: usize,
-    // The virtual beginning of the container
+pub struct RingBuffer<T, A: Alloc = Global> {
+    /// The internal buffer used for storing elements in the container
+    buf: ptr::Unique<T>,
+    /// The offset to buffer's end
+    cap: usize,
+    /// The offset to virtual beginning of the container
     first: usize,
-    // The virtual end of the container
+    /// The offset to virtual end of the container
     last: usize,
-    // The number of items currently stored in the container
-    len: usize,
 
     a: A,
 }
 
 impl<T> RingBuffer<T> {
-    pub unsafe fn TEST_NEW() -> RingBuffer<T> {
-        let mut t = RingBuffer {
-            buf: Unique::empty(),
-            end: 0,
+    // Construction
+
+    /// Create an empty container with zero capacity
+    pub fn new() -> RingBuffer<T> {
+        return RingBuffer {
+            buf: ptr::Unique::empty(),
+            cap: 0,
             first: 0,
             last: 0,
-            len: 0,
+            a: Global,
+        };
+    }
+
+    /// Create an empty container with the specified capacity
+    pub fn with_capacity(capacity: usize) -> RingBuffer<T> {
+        let mut t = RingBuffer {
+            buf: ptr::Unique::empty(),
+            cap: 0,
+            first: 0,
+            last: 0,
             a: Global,
         };
 
-        let res = t.a.alloc_array(21).ok().unwrap();
-        t.buf = Unique::new_unchecked(res.as_ptr());
-        t.end = (res.as_ptr() as *mut T) as usize + 21;
+        let res: ptr::NonNull<T> = t.a.alloc_array(capacity).ok().unwrap();
+        unsafe {
+            t.buf = ptr::Unique::new_unchecked(res.as_ptr());
+            t.cap = capacity;
+        }
 
         return t;
     }
-    
-    // pub unsafe fn new_inplace(raw: *mut u32) -> RingBuffer<T> {
-    //     return ; 
-    // }
 
-    // pub fn new() -> RingBuffer<T> {
-    //     let mut t = RingBuffer {
-    //         buf: Unique::empty(),
-    //         end: 0,
-    //         first: 0,
-    //         last: 0,
-    //         len: 0,
-    //         a: Global,
-    //     };
-    // }
-
-    // pub fn with_capacity(capacity: usize) -> RingBuffer<T> {
-        
-    // }
-    
-    pub fn push_back(&self, value: T) {
-        
-        self.len+=1;
+    fn increment(limit: usize, offset: &mut usize) {
+        *offset += 1;
+        if *offset > limit {
+            *offset = 0;
+        }
     }
 
-    pub fn push_front(&self, value: T) {
+    fn decrement(limit: usize, offset: &mut usize) {
+        if *offset == 0 {
+            *offset = limit;
+        }
+        *offset -= 1;
+    }
+
+    pub fn push_back(&mut self, value: T) {
+        if self.is_full() {
+            if self.is_empty() {
+                return;
+            }
+            /* replace last */
+            Self::increment(self.cap, &mut self.last)
+        } else {
+            unsafe { ptr::replace(self.buf.as_ptr().offset(self.last as isize), value) };
+            Self::increment(self.cap, &mut self.last);
+        }
+    }
+
+    pub fn push_front(&mut self, value: T) {
+        if self.is_full() {
+            if self.is_empty() {
+                return;
+            }
+            /* replace first */
+            Self::decrement(self.cap, &mut self.first)
+        } else {
+            Self::decrement(self.cap, &mut self.first);
+            unsafe { ptr::replace(self.buf.as_ptr().offset(self.first as isize), value) };
+        }
+    }
+
+    pub fn pop_back(&mut self) -> Option<T> {
+        if self.is_empty() {
+            return None;
+        };
+
+        Self::decrement(self.cap, &mut self.last);
+
+        unsafe { 
+            return Some(ptr::read(self.buf.as_ptr().offset(self.last as isize))); 
+        }
+    }
+
+    pub fn pop_front(&mut self) -> Option<T> {
+        if self.is_empty() {
+            return None;
+        };
+
+        let val = self.first;
+        Self::increment(self.cap, &mut self.first);
         
-        self.len+=1;
+        unsafe { 
+            return Some(ptr::read(self.buf.as_ptr().offset(val as isize))); 
+        }
     }
 
-    pub fn pop_back(&self) -> T {
-       
-        self.len-=1;
+    /// Is the internal buffer is linearized into a continuous array
+    pub fn is_linearized(&self) -> bool {
+        // Element are not separated by two part (at start or end in internal buffer) 
+        return self.first < self.last 
+        // All element placed at the end of internal buffer 
+        || self.last == 0;
     }
 
-    pub fn pop_front(&self) -> T {
-        
-        self.len-=1;
+    pub fn linearize(&self) {
+        if self.is_empty() {
+            return;
+        }
+        if self.is_linearized() {
+            return;
+        }
     }
-
-    // pub fn range<K, R>(&self, range: R) -> std::ops::Range<> {
-    //     //TODO 
-    // }
 }
 
-// impl<T, A: Alloc> Drop for RingBuffer<T, A> {}
+// impl<T> Drop for RingBuffer<T> {
+//     fn drop(&mut self) {
+//         println!("Dropping!");
+//     }
+// }
+
+// impl<T> fmt::Debug for RingBuffer<T> {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         write!(f, "RingBuffer = []", )
+//     }
+// }
+
+pub trait CapacityManipulator<T> {
+    fn resize(&mut self, new_len: usize, value: T);
+    fn reserve(&mut self, additional: usize);
+    fn shrink_to_fit(&mut self);
+}
 
 pub trait CapacityInfo {
-    // Get the number of elements currently stored in the container
+    /// Returns the number of elements currently stored in the container
     fn len(&self) -> usize;
-    // Get the capacity of the container
+    /// Returns the number of elements that can be held in container
     fn capacity(&self) -> usize;
 }
 
 impl<T> CapacityInfo for RingBuffer<T> {
     fn len(&self) -> usize {
-        return self.len;
+        if self.cap == 1 {
+            return 1
+        }
+
+        if self.first <= self.last {
+            return self.last - self.first;
+        }
+
+        return self.cap - (self.first - self.last) 
     }
 
     fn capacity(&self) -> usize {
-        return self.end - (self.buf.as_ptr() as usize);
+        return self.cap;
     }
 }
 
 pub trait CapacityInfoExt {
+    /// Returns true if the container can't hold more elements
     fn is_full(&self) -> bool;
+    /// Returns true if the container contains no elements
     fn is_empty(&self) -> bool;
-    fn reserve(&self) -> usize;
+    /// Returns the number
+    fn reserve_size(&self) -> usize;
 }
 
 impl<T: CapacityInfo> CapacityInfoExt for T {
@@ -113,7 +193,7 @@ impl<T: CapacityInfo> CapacityInfoExt for T {
         return self.len() == 0;
     }
 
-    fn reserve(&self) -> usize { 
-        return self.capacity() - self.len(); 
+    fn reserve_size(&self) -> usize {
+        return self.capacity() - self.len();
     }
 }
