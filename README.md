@@ -3,6 +3,7 @@ jjc
 # Ring Buffer | Circular buffer | Circular queue | Cyclic buffer
 ## Other implementations: 
 - C++: https://www.boost.org/doc/libs/1_61_0/doc/html/circular_buffer.html
+- C: https://github.com/willemt/cbuffer
 
 ## Related Articles
   - https://en.wikipedia.org/wiki/Circular_buffer
