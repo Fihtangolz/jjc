@@ -1,3 +1,8 @@
+#[macro_use]
+extern crate bitflags;
+
+mod quotient_filter;
+
 #[cfg(test)]
 mod tests {
     #[test]
