@@ -69,3 +69,14 @@ struct Slot<T> {
     bits: Flags,
     value: T,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::mem;
+
+    #[test]
+    fn size_of_flags_1() {
+        debug_assert_eq!(mem::size_of::<Flags>(), 1);
+    }
+}
