@@ -1,9 +1,13 @@
 [package]
 name = "jjc"
-version = "0.1.0"
-authors = ["Temirkhan Myrzamadi <gymmasssorla@gmail.com>"]
+version = "0.0.1"
+description = "Reserved"
+license = "MIT"
+authors = ["jjc team"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
+[lib]
+name = "jjc"
+path = "src/lib.rs"
+test = false
+bench = false

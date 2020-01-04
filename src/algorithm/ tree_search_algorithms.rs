@@ -1,4 +1,3 @@
-/*
 /// Dijkstra's Shortest Path First algorithm
 trait SPF {
     type LenTable;
@@ -20,4 +19,3 @@ where
         return table;
     }
 }
-*/
