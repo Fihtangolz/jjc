@@ -68,45 +68,42 @@ pub trait Edge<Weight, Node> {
 /// https://doc.rust-lang.org/std/iter/index.html#the-three-forms-of-iteration
 /// 
 /// We can provide dfs_iter_mut?? 
-pub trait DfsIntoIterExt<'a, Item>: TraverseableNode<'a, Item> {
-    fn dfs_iter(&'a self) -> DfsIterStateHolder<'a, Self::Item>;
-}
-
-impl<'a> DfsIntoIterExt<'a>: TraverseableNode<'a, Item=Self> + Sized + 'a {
+pub trait  DfsIntoIterExt<'a>: TraverseableNode<'a, Item=Self> + Sized + 'a {
     fn dfs_iter(&'a self) -> DfsIterStateHolder<'a, Self::Item>
     where
         Self::Item: Eq + Hash,
     {
-        let mut set = HashSet::new();
-        set.insert(self);
+        let mut visited = HashSet::new();
+        visited.insert(self);
         let mut bypass_buff = VecDeque::new();
         bypass_buff.push_back(self);
         return DfsIterStateHolder {
-            set: set,
+            visited: visited,
             bypass_buff: bypass_buff,
         };
     }
 }
 
 pub struct DfsIterStateHolder<'a, Item> {
-    set: HashSet<&'a Item>,
+    visited: HashSet<&'a Item>,
     bypass_buff: VecDeque<&'a Item>,
 }
 
-impl<'a, I: TraverseableNode<'a, Item=I> + Eq + Hash> Iterator for DfsIterStateHolder<'a, I>
+impl<'a, I> Iterator for DfsIterStateHolder<'a, I>
+where I: TraverseableNode<'a, Item=I> + Eq + Hash
 {
     type Item = &'a I;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let current_node = self.bypass_buff.pop_front();
-        match current_node {
+        let current = self.bypass_buff.pop_front();
+        match current {
             Some(v) => {
                 for el in v.traverser() {
-                    if self.set.insert(el) {
+                    if self.visited.insert(el) {
                         self.bypass_buff.push_back(el);
                     }
                 }
-                return current_node;
+                return current;
             }
             None => {
                 return None;
