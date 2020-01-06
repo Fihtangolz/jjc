@@ -44,29 +44,6 @@ impl<'a> TraverseableNode<'a> for Node {
 
 impl<'a> DfsIntoIterExt<'a> for Node {} 
 
-
-/// Dijkstra's Shortest Path First algorithm
-trait SPF {
-    type LenTable;
-    fn spf(&mut self) -> Self::LenTable;
-}
-
-impl<'a, E: Edge<usize, Node>, T> SPF for T
-where E: Eq + Hash,
-      T: Iterator<Item=E>
-{
-    type LenTable = HashMap<Node, usize>;
-
-    fn spf(&mut self) -> Self::LenTable {
-        let table = Self::LenTable::new();
-        for item in self.dfs_iter() {
-            table[item.node()] = item.weigh();
-        }
-
-        return table;
-    }
-}
-
 fn creat_test_graph() -> Node {
     let mut graph: [Node; 6] = unsafe { std::mem::MaybeUninit::zeroed().assume_init() };
 
