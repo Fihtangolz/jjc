@@ -1,2 +1,2 @@
 // pub mod algorithm;
-pub mod aproximate_counting;
+pub mod approximate_counting;
