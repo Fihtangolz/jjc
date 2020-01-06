@@ -4,6 +4,7 @@ use core::slice::SliceIndex;
 use std::ptr;
 use std::fmt;
 use std::mem::MaybeUninit;
+use std::ops::RangeBounds;
 
 pub use crate::help_trait::{CapacityInfo, CapacityManipulator, CapacityInfoExt};
 
@@ -14,8 +15,10 @@ pub struct RingBuffer<T> {
     cap: usize,
     /// The offset to virtual beginning of the container
     first: usize,
-    /// The offset to virtual end of the container
+    /// The offset to element after virtual end of the container
     last: usize,
+    /// The munber of storing element 
+    len: usize,
 
     a: Global,
 }
@@ -41,17 +44,18 @@ impl<'a, T> InternalArray<'a, T> {
             return;
         }
 
+
     }
 
     pub fn first_part(&self) -> &[T] {
         unsafe { 
-            return std::slice::from_raw_parts(self.con.buf.as_ptr().offset(self.con.first as isize), 0);
+            return std::slice::from_raw_parts(self.con.buf.as_ptr().offset(0), self.con.last-1);
         }
     }
 
     pub fn second_part(&self) -> &[T] {
         unsafe { 
-            return std::slice::from_raw_parts(self.con.buf.as_ptr().offset(0), );
+            return std::slice::from_raw_parts(self.con.buf.as_ptr().offset(self.con.first as isize), self.con.cap - self.con.first);
         }
     }
 }
@@ -66,6 +70,7 @@ impl<T> RingBuffer<T> {
             cap: 0,
             first: 0,
             last: 0,
+            len: 0,
             a: Global,
         };
     }
@@ -77,6 +82,7 @@ impl<T> RingBuffer<T> {
             cap: 0,
             first: 0,
             last: 0,
+            len: 0, 
             a: Global,
         };
 
@@ -94,6 +100,13 @@ impl<T> RingBuffer<T> {
     }
  
     // Interanal
+    fn drop_range<R>(&self, range: R) 
+    where 
+    R: RangeBounds<usize> 
+    {
+        unimplemented!();
+    }
+
     fn increment(front_limit: usize, back_limit: usize, offset: &mut usize) {
         *offset += 1;
         if *offset > back_limit {
@@ -122,12 +135,9 @@ impl<T> RingBuffer<T> {
             /* replace last */
             Self::increment(0, self.cap, &mut self.last)
         } else {
-            if self.is_empty() {
-                unsafe { ptr::replace(self.buf.as_ptr().offset(self.last as isize), value) };
-                return;
-            }
             unsafe { ptr::replace(self.buf.as_ptr().offset(self.last as isize), value) };
             Self::increment(0, self.cap, &mut self.last);
+            self.len += 1;
         }
     }
 
@@ -139,8 +149,11 @@ impl<T> RingBuffer<T> {
             /* replace first */
             Self::decrement(0, self.cap, &mut self.first)
         } else {
-            Self::decrement(0, self.cap, &mut self.first);
-            unsafe { ptr::replace(self.buf.as_ptr().offset(self.first as isize), value) };
+            Self::decrement(0, self.cap - 1, &mut self.first);
+            unsafe { 
+                ptr::replace(self.buf.as_ptr().offset(self.first as isize), value) 
+            };
+            self.len += 1;
         }
     }
 
@@ -236,12 +249,13 @@ impl<T> RingBuffer<T> {
     }
 
     //Clearing 
-
+    
     /// Removes all stored elements
     pub fn clear(&mut self) {
-        let mut cur = self.first;
-        unsafe { std::ptr::drop_in_place(self.buf.as_ptr().offset(cur as isize)) };
-        Self::increment(0, self.cap, &mut cur);
+        self.drop_range(..);
+        self.first = 0;
+        self.last = 0;
+        self.len = 0;
     }
 
     /// Removes item at position index  
@@ -272,53 +286,58 @@ impl<T> Index<usize> for RingBuffer<T> {
 }
 
 impl<T> Clone for RingBuffer<T> {
+    /// Clone buffer as bonus linearize it 
     fn clone(&self) -> Self {
         unsafe {
             let mut copy: RingBuffer<T> = MaybeUninit::uninit().read();
-       
-            copy.cap = self.cap;
-            copy.first = self.first;
-            copy.last = self.last;  
-            copy.a = self.a;
             
             let res: ptr::NonNull<T> = copy.a.alloc_array(copy.cap).ok().unwrap();
             copy.buf = ptr::Unique::new_unchecked(res.as_ptr());
 
-            // if self.is_linearized() {
-            //     std::ptr::copy_nonoverlapping(self.buf.as_ptr(), copy.buf.as_ptr(), self.capacity()); 
-            // }
-            // std::ptr::copy_nonoverlapping(self.buf.as_ptr(), copy.buf.as_ptr(), self.capacity()); 
-            // std::ptr::copy_nonoverlapping(self.buf.as_ptr(), copy.buf.as_ptr(), self.capacity()); 
+            copy.cap = self.cap;
+            copy.a = self.a;
+            copy.len = self.len;
+            
+            if self.internal_array().is_linearized() {
+                std::ptr::copy_nonoverlapping(self.buf.as_ptr().offset(self.first as isize), copy.buf.as_ptr(), self.len());  
+            } else {
+                std::ptr::copy_nonoverlapping(self.buf.as_ptr().offset(self.first as isize), copy.buf.as_ptr(), self.cap - self.first); 
+                std::ptr::copy_nonoverlapping(self.buf.as_ptr().offset(0), copy.buf.as_ptr().offset( (self.cap - self.first + 1) as isize), self.first + 1); 
+            }
+        
+            copy.first = 0;  
+            copy.last = self.len() - 1;
 
             return copy;
         }
     }
 
     fn clone_from(&mut self, source: &Self) {
+        self.drop_range(..);
         if self.capacity() >= source.capacity() {
-            //TODO: just copy internals, also all object need to be correct droped
+            self.reserve(self.capacity() - source.capacity());
         }
         //TODO: ...
     }
 } 
 
 pub struct IterStateHolder<'a, T> {
-    ptr: *const T,
+    con: &'a RingBuffer<T>,
     cur: usize,
-    last: usize,
-    phantom: &'a std::marker::PhantomData<T>
 }
 
 impl<'a, T> Iterator for IterStateHolder<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.cur < self.last { //TODO: incorect implementation
-            unsafe { 
-                let el = self.ptr.offset(self.cur as isize);
-                self.cur += 1;
-                return Some(&*el);
-            } 
+        if self.cur == self.con.last {
+            return None;
+        }
+
+        unsafe { 
+            let mut ptr = self.con.buf.as_ptr().offset(self.cur as isize);
+            RingBuffer::<T>::increment(0, self.con.last, &mut self.cur);
+            return Some(&*ptr);
         }
 
         return None;
@@ -331,16 +350,15 @@ impl<'a, T> IntoIterator for  &'a RingBuffer<T> {
 
     fn into_iter(self) -> Self::IntoIter {
         return IterStateHolder{
-            ptr: self.buf.as_ptr(),
+            con: &self,
             cur: self.first,
-            last: self.last,
-            phantom: &std::marker::PhantomData
         }
     }
 }
 
 impl<T> Drop for RingBuffer<T> {
     fn drop(&mut self) {
+        drop_range(..);
         unsafe {
             let ptr = ptr::NonNull::new_unchecked(self.buf.as_ptr());
             self.a.dealloc_array(ptr, self.cap);
@@ -364,15 +382,7 @@ impl<T> CapacityManipulator<T> for RingBuffer<T> {
 
 impl<T> CapacityInfo for RingBuffer<T> {
     fn len(&self) -> usize {
-        if self.cap == 1 {
-            return 1
-        }
-
-        if self.first <= self.last {
-            return self.last - self.first;
-        }
-
-        return self.cap - (self.first - self.last) 
+        return self.len;
     }
 
     fn capacity(&self) -> usize {
@@ -380,16 +390,4 @@ impl<T> CapacityInfo for RingBuffer<T> {
     }
 }
 
-impl<T> CapacityInfoExt for RingBuffer<T> {
-    fn is_full(&self) -> bool {
-        return self.first - 1 == self.last;
-    }
-
-    fn is_empty(&self) -> bool {
-        return self.first == self.last;
-    }
-
-    fn reserve_size(&self) -> usize {
-        return self.capacity() - self.len();
-    }
-}
+impl<T> CapacityInfoExt for RingBuffer<T> {}
