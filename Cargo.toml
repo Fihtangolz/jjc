@@ -11,3 +11,6 @@ name = "jjc"
 path = "src/lib.rs"
 test = false
 bench = false
+
+[dependencies]
+rand = "0.7"
